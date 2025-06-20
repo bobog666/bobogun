@@ -1,0 +1,214 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>2D Shooter v0.8_realgame</title>
+  <style>
+    body { background-color: black; color: white; text-align: center; font-family: sans-serif; }
+    canvas { background: #111; display: block; margin: 20px auto; }
+  </style>
+</head>
+<body>
+  <h1>2D Shooter v0.8_realgame</h1>
+  <p>✅ 分身同步素質 + E鍵閃現 + 敵人攻擊優化 + 技能UI完整</p>
+  <canvas id="gameCanvas" width="800" height="600" tabindex="1"></canvas>
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    canvas.focus();
+
+    let now = () => new Date().getTime();
+    const player = { x: 400, y: 300, size: 40, speed: 5, health: 100, lastSummon: 0, summonCooldown: 5000, lastBlink: 0, blinkCooldown: 3000 };
+    const keys = {}, bullets = [], clones = [], enemyBullets = [];
+    let enemies = [];
+
+    document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+    document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+    canvas.addEventListener("mousedown", e => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const angle = Math.atan2(my - player.y, mx - player.x);
+      bullets.push({ x: player.x, y: player.y, angle });
+    });
+
+    function createEnemies() {
+      enemies = [
+        { x: 100, y: 100, type: "shield", speed: 2, health: 100, shield: false, lastShield: 0, alive: true },
+        { x: 700, y: 100, type: "explosive", speed: 2.2, health: 100, alive: true },
+        { x: 400, y: 500, type: "fast", speed: 3.5, health: 100, alive: true }
+      ];
+    }
+
+    function summonClone() {
+      const t = now();
+      if (t - player.lastSummon >= player.summonCooldown) {
+        clones.push({ x: player.x + 60, y: player.y, size: 40, speed: 5, health: 100, alive: true, lastFire: 0 });
+        player.lastSummon = t;
+      }
+    }
+
+    function blinkTowardsMouse() {
+      const t = now();
+      if (t - player.lastBlink < player.blinkCooldown) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = event.clientX - rect.left, my = event.clientY - rect.top;
+      const angle = Math.atan2(my - player.y, mx - player.x);
+      player.x += Math.cos(angle) * 120;
+      player.y += Math.sin(angle) * 120;
+      player.lastBlink = t;
+    }
+
+    canvas.addEventListener("click", e => {
+      if (keys["e"]) blinkTowardsMouse(e);
+    });
+
+    function update() {
+      if (keys["w"]) player.y -= player.speed;
+      if (keys["s"]) player.y += player.speed;
+      if (keys["a"]) player.x -= player.speed;
+      if (keys["d"]) player.x += player.speed;
+      if (keys["q"]) summonClone();
+
+      clones.forEach(clone => {
+        if (!clone.alive) return;
+        const target = enemies.find(e => e.alive);
+        if (target) {
+          const dx = target.x - clone.x, dy = target.y - clone.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist > 10) {
+            clone.x += clone.speed * dx / dist;
+            clone.y += clone.speed * dy / dist;
+          }
+          if (now() - clone.lastFire > 500) {
+            const angle = Math.atan2(dy, dx);
+            bullets.push({ x: clone.x, y: clone.y, angle });
+            clone.lastFire = now();
+          }
+        }
+      });
+
+      enemies.forEach(e => {
+        if (!e.alive) return;
+        const dx = player.x - e.x, dy = player.y - e.y;
+        const dist = Math.hypot(dx, dy);
+        e.x += e.speed * dx / dist;
+        e.y += e.speed * dy / dist;
+
+        if (e.type === "shield" && now() - e.lastShield > 10000) {
+          e.shield = true;
+          e.lastShield = now();
+          setTimeout(() => { e.shield = false; }, 3000);
+        }
+
+        if (Math.random() < 0.02) {
+          const angle = Math.atan2(player.y - e.y, player.x - e.x);
+          enemyBullets.push({ x: e.x, y: e.y, angle, type: e.type });
+        }
+      });
+
+      bullets.forEach((b, i) => {
+        b.x += 10 * Math.cos(b.angle);
+        b.y += 10 * Math.sin(b.angle);
+        enemies.forEach(e => {
+          if (!e.alive || e.shield) return;
+          if (Math.abs(b.x - e.x) < 20 && Math.abs(b.y - e.y) < 20) {
+            e.health -= 10;
+            bullets.splice(i, 1);
+            if (e.health <= 0) e.alive = false;
+          }
+        });
+      });
+
+      enemyBullets.forEach((b, i) => {
+        b.x += 6 * Math.cos(b.angle);
+        b.y += 6 * Math.sin(b.angle);
+        if (Math.abs(b.x - player.x) < 20 && Math.abs(b.y - player.y) < 20) {
+          player.health -= b.type === "explosive" ? 20 : 10;
+          enemyBullets.splice(i, 1);
+        }
+        clones.forEach(clone => {
+          if (clone.alive && Math.abs(b.x - clone.x) < 20 && Math.abs(b.y - clone.y) < 20) {
+            clone.health -= 10;
+            if (clone.health <= 0) clone.alive = false;
+            enemyBullets.splice(i, 1);
+          }
+        });
+      });
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "lime";
+      ctx.fillRect(player.x, player.y, player.size, player.size);
+      ctx.fillStyle = "red";
+      ctx.fillRect(20, 20, player.health * 2, 20);
+
+      clones.forEach(clone => {
+        if (!clone.alive) return;
+        ctx.fillStyle = "cyan";
+        ctx.fillRect(clone.x, clone.y, clone.size, clone.size);
+      });
+
+      enemies.forEach(e => {
+        if (!e.alive) return;
+        ctx.fillStyle = e.type === "fast" ? "orange" : e.type === "explosive" ? "crimson" : "red";
+        ctx.fillRect(e.x, e.y, 40, 40);
+        if (e.shield) {
+          ctx.strokeStyle = "cyan";
+          ctx.beginPath();
+          ctx.arc(e.x + 20, e.y + 20, 30, 0, 2 * Math.PI);
+          ctx.stroke();
+        }
+      });
+
+      bullets.forEach(b => {
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      enemyBullets.forEach(b => {
+        ctx.fillStyle = b.type === "explosive" ? "magenta" : "orange";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      const ratioQ = Math.min(1, (now() - player.lastSummon) / player.summonCooldown);
+      const ratioE = Math.min(1, (now() - player.lastBlink) / player.blinkCooldown);
+      ctx.fillStyle = "white";
+      ctx.fillText("Q - 分身", 650, 530);
+      ctx.strokeStyle = "gray";
+      ctx.strokeRect(650, 550, 100, 10);
+      ctx.fillStyle = "cyan";
+      ctx.fillRect(650, 550, 100 * ratioQ, 10);
+      if (ratioQ >= 1) ctx.fillText("Ready", 670, 545);
+
+      ctx.fillStyle = "white";
+      ctx.fillText("E - 閃現", 650, 580);
+      ctx.strokeStyle = "gray";
+      ctx.strokeRect(650, 600, 100, 10);
+      ctx.fillStyle = "violet";
+      ctx.fillRect(650, 600, 100 * ratioE, 10);
+      if (ratioE >= 1) ctx.fillText("Ready", 670, 595);
+    }
+
+    function loop() {
+      update();
+      draw();
+      if (player.health > 0) requestAnimationFrame(loop);
+      else {
+        ctx.fillStyle = "white";
+        ctx.font = "48px sans-serif";
+        ctx.fillText("GAME OVER", 280, 300);
+      }
+    }
+
+    createEnemies();
+    loop();
+  </script>
+</body>
+</html>
